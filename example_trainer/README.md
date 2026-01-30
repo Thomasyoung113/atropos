@@ -347,7 +347,7 @@ BENCHMARK SUMMARY (shared_vllm)
 ======================================================================
   Total training time:     168.65s (2.81 min)
   Total steps:             50
-  
+
   TIMING BREAKDOWN:
     Avg step time:         11.95s
     Total step time:       59.76s
@@ -355,7 +355,7 @@ BENCHMARK SUMMARY (shared_vllm)
     Total sync time:       0.00s
     Avg data fetch time:   10.90s
     Total data fetch time: 54.52s
-  
+
   MEMORY:
     Peak GPU memory:       31.44 GB
     Avg GPU memory:        18.88 GB

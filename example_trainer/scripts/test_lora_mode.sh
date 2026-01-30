@@ -123,11 +123,11 @@ if [ -d "$LOG_DIR/checkpoints" ]; then
     if [ -n "$LATEST_ADAPTER" ]; then
         echo ""
         echo "Post-training test with adapter: $LATEST_ADAPTER"
-        
+
         curl -s -X POST "http://localhost:${VLLM_PORT}/lora/load" \
             -H "Content-Type: application/json" \
             -d '{"adapter_path": "'"$LATEST_ADAPTER"'"}' | jq
-        
+
         echo ""
         echo "Response after training:"
         curl -s -X POST "http://localhost:${VLLM_PORT}/v1/chat/completions" \
@@ -140,4 +140,3 @@ if [ -d "$LOG_DIR/checkpoints" ]; then
             }' | jq '.choices[0].message.content' | tee "${LOG_DIR}/trained_response.txt"
     fi
 fi
-

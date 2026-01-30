@@ -2,7 +2,7 @@
 # =============================================================================
 # Concurrent GSM8k Training Test Script
 # =============================================================================
-# 
+#
 # This script runs BOTH LoRA and Single-Copy modes concurrently on an 8-GPU node:
 #   - GPUs 0-1: LoRA mode (vLLM on GPU 0, trainer on GPU 1)
 #   - GPUs 4-5: Single-Copy mode (vLLM+trainer share GPU 4)
@@ -243,4 +243,3 @@ grep -E "Step|Loss|Accuracy" "${LOG_DIR}/lora_trainer.log" | tail -20 | tee -a "
 echo "" | tee -a "${LOG_DIR}/summary.txt"
 echo "=== Single-Copy Training Summary ===" | tee -a "${LOG_DIR}/summary.txt"
 grep -E "Step|Loss|Accuracy" "${LOG_DIR}/single_copy_trainer.log" | tail -20 | tee -a "${LOG_DIR}/summary.txt"
-

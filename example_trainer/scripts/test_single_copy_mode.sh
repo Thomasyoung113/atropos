@@ -145,4 +145,3 @@ curl -s -X POST "http://localhost:${VLLM_PORT}/v1/chat/completions" \
         "max_tokens": 100,
         "temperature": 0.1
     }' | jq '.choices[0].message.content' | tee "${LOG_DIR}/trained_response.txt"
-

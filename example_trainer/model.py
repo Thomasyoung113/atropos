@@ -20,6 +20,7 @@ from .config import TrainingConfig
 # Import PEFT for LoRA training
 try:
     from peft import LoraConfig, TaskType, get_peft_model
+
     PEFT_AVAILABLE = True
 except ImportError:
     PEFT_AVAILABLE = False
@@ -45,7 +46,7 @@ def load_model_and_tokenizer(
     if single_copy or config.weight_bridge_mode == "shared_vllm":
         config_path = _find_vllm_config(config)
         model = _attach_to_vllm_shared_tensors(config, config_path)
-        
+
         if model is not None:
             print("[Setup] ✓ Single-copy mode active - using vLLM's tensors directly!")
             # Enable gradient checkpointing to save memory (was missing before!)
@@ -70,20 +71,21 @@ def load_model_and_tokenizer(
         flash_available = False
         try:
             import flash_attn
+
             flash_available = True
         except ImportError:
             pass
-        
+
         if flash_available:
             model = AutoModelForCausalLM.from_pretrained(
-                config.model_name, 
+                config.model_name,
                 torch_dtype=torch.bfloat16,
                 attn_implementation="flash_attention_2",
             )
             print("[Setup] Using Flash Attention 2")
         else:
             model = AutoModelForCausalLM.from_pretrained(
-                config.model_name, 
+                config.model_name,
                 torch_dtype=torch.bfloat16,
                 attn_implementation="sdpa",
             )
@@ -144,20 +146,21 @@ def _load_model_with_lora(config: TrainingConfig) -> torch.nn.Module:
     flash_available = False
     try:
         import flash_attn
+
         flash_available = True
     except ImportError:
         pass
-    
+
     if flash_available:
         base_model = AutoModelForCausalLM.from_pretrained(
-            config.model_name, 
+            config.model_name,
             torch_dtype=torch.bfloat16,
             attn_implementation="flash_attention_2",
         )
         print("[Setup] Using Flash Attention 2")
     else:
         base_model = AutoModelForCausalLM.from_pretrained(
-            config.model_name, 
+            config.model_name,
             torch_dtype=torch.bfloat16,
             attn_implementation="sdpa",
         )
@@ -187,7 +190,9 @@ def _load_model_with_lora(config: TrainingConfig) -> torch.nn.Module:
     return model
 
 
-def _setup_gradient_checkpointing(model: torch.nn.Module, config: TrainingConfig) -> None:
+def _setup_gradient_checkpointing(
+    model: torch.nn.Module, config: TrainingConfig
+) -> None:
     """Configure gradient checkpointing for the model."""
     # Disable KV cache - incompatible with gradient checkpointing
     model.config.use_cache = False
@@ -259,10 +264,11 @@ def _attach_to_vllm_shared_tensors(
         flash_available = False
         try:
             import flash_attn
+
             flash_available = True
         except ImportError:
             pass
-        
+
         if flash_available:
             try:
                 model = AutoModelForCausalLM.from_config(
@@ -280,7 +286,9 @@ def _attach_to_vllm_shared_tensors(
                 )
         else:
             print("[Setup] flash_attn not installed, using SDPA attention")
-            print("[Setup] NOTE: ~10-15% logprob diff with vLLM expected (different attention impl)")
+            print(
+                "[Setup] NOTE: ~10-15% logprob diff with vLLM expected (different attention impl)"
+            )
             model = AutoModelForCausalLM.from_config(
                 model_config,
                 torch_dtype=torch.bfloat16,
@@ -303,7 +311,9 @@ def _attach_to_vllm_shared_tensors(
         ipc_handles, vllm_to_hf_mapping, config
     )
 
-    print(f"[Setup] Attached {attached_count} tensors ({fused_count} from fused layers)")
+    print(
+        f"[Setup] Attached {attached_count} tensors ({fused_count} from fused layers)"
+    )
 
     if attached_count == 0:
         print("[Setup] Could not attach any tensors, falling back to regular loading")
@@ -328,6 +338,7 @@ def _attach_to_vllm_shared_tensors(
 
 def _deserialize_ipc_handles(handles_raw: dict) -> dict:
     """Deserialize base64-encoded bytes in IPC handles."""
+
     def deserialize(handles):
         result = {}
         for k, v in handles.items():
@@ -339,6 +350,7 @@ def _deserialize_ipc_handles(handles_raw: dict) -> dict:
             else:
                 result[k] = v
         return result
+
     return deserialize(handles_raw)
 
 
@@ -393,8 +405,14 @@ def _reconstruct_shared_tensors(
             event_sync_required = ipc_info["event_sync_required"]
 
             share_tuple = (
-                device_index, ipc_handle, storage_size, storage_offset_orig,
-                ref_counter_handle, ref_counter_offset, event_handle, event_sync_required,
+                device_index,
+                ipc_handle,
+                storage_size,
+                storage_offset_orig,
+                ref_counter_handle,
+                ref_counter_offset,
+                event_handle,
+                event_sync_required,
             )
 
             storage = torch.UntypedStorage._new_shared_cuda(*share_tuple)
@@ -430,7 +448,9 @@ def _reconstruct_shared_tensors(
                 if slice_dim == 0:
                     tensor = full_tensor[slice_start:slice_end]
                 else:
-                    tensor = full_tensor.narrow(slice_dim, slice_start, slice_end - slice_start)
+                    tensor = full_tensor.narrow(
+                        slice_dim, slice_start, slice_end - slice_start
+                    )
 
                 tensor.requires_grad_(True)
                 hf_state_dict[hf_name] = tensor
@@ -465,12 +485,16 @@ def _validate_mapping_coverage(
 
     # Note: attached_count may be > param_count because state_dict includes buffers
     # while named_parameters only counts trainable params
-    print(f"[Setup] Mapping coverage: {attached_count} tensors for {hf_param_count} parameters "
-          f"(>100% is OK - includes buffers)")
+    print(
+        f"[Setup] Mapping coverage: {attached_count} tensors for {hf_param_count} parameters "
+        f"(>100% is OK - includes buffers)"
+    )
 
     if mapping_coverage < 0.90:
         unmapped_params = set(model.state_dict().keys()) - set(hf_state_dict.keys())
-        warning_msg = f"[Setup] WARNING: Low mapping coverage ({mapping_coverage:.1%})\n"
+        warning_msg = (
+            f"[Setup] WARNING: Low mapping coverage ({mapping_coverage:.1%})\n"
+        )
         warning_msg += f"Unmapped parameters ({len(unmapped_params)}):\n"
         for name in list(unmapped_params)[:20]:
             warning_msg += f"  - {name}\n"
@@ -490,11 +514,17 @@ def _initialize_meta_tensors(
     config: TrainingConfig,
 ) -> None:
     """Initialize any remaining meta tensors after loading."""
-    meta_params = [name for name, p in model.named_parameters() if p.device.type == "meta"]
-    meta_buffers = [name for name, b in model.named_buffers() if b.device.type == "meta"]
+    meta_params = [
+        name for name, p in model.named_parameters() if p.device.type == "meta"
+    ]
+    meta_buffers = [
+        name for name, b in model.named_buffers() if b.device.type == "meta"
+    ]
 
     if config.debug_loading:
-        print(f"\n[DIAGNOSTIC] Meta params: {len(meta_params)}, Meta buffers: {len(meta_buffers)}")
+        print(
+            f"\n[DIAGNOSTIC] Meta params: {len(meta_params)}, Meta buffers: {len(meta_buffers)}"
+        )
 
     def get_parent_and_name(model, full_name):
         parts = full_name.split(".")
@@ -532,11 +562,15 @@ def _initialize_meta_tensors(
                 dim = buffer.shape[0] * 2
                 # Get rope_theta from model config (default 10000.0 for LLaMA, but Qwen3 uses 5000000!)
                 rope_theta = getattr(model.config, "rope_theta", 10000.0)
-                inv_freq = 1.0 / (rope_theta ** (torch.arange(0, dim, 2, dtype=torch.float32) / dim))
+                inv_freq = 1.0 / (
+                    rope_theta ** (torch.arange(0, dim, 2, dtype=torch.float32) / dim)
+                )
                 new_buffer = inv_freq.to(dtype=buffer.dtype, device=device)
                 print(f"[Setup] Initialized {name} with rope_theta={rope_theta}")
             else:
-                new_buffer = torch.zeros(buffer.shape, dtype=buffer.dtype, device=device)
+                new_buffer = torch.zeros(
+                    buffer.shape, dtype=buffer.dtype, device=device
+                )
 
             parent, attr_name = get_parent_and_name(model, name)
             parent.register_buffer(attr_name, new_buffer)
@@ -550,8 +584,12 @@ def _initialize_meta_tensors(
 
 def _validate_no_meta_tensors(model: torch.nn.Module) -> None:
     """Ensure no parameters or buffers are still on meta device."""
-    final_meta_params = [name for name, p in model.named_parameters() if p.device.type == "meta"]
-    final_meta_buffers = [name for name, b in model.named_buffers() if b.device.type == "meta"]
+    final_meta_params = [
+        name for name, p in model.named_parameters() if p.device.type == "meta"
+    ]
+    final_meta_buffers = [
+        name for name, b in model.named_buffers() if b.device.type == "meta"
+    ]
 
     if final_meta_params or final_meta_buffers:
         error_msg = "[Setup] CRITICAL ERROR: Some tensors are still on meta device!\n"
@@ -581,7 +619,7 @@ def _create_vllm_to_hf_mapping(
     Handles fused layers:
     - qkv_proj (vLLM) = q_proj + k_proj + v_proj (HF)
     - gate_up_proj (vLLM) = gate_proj + up_proj (HF)
-    
+
     Uses actual tensor shapes from HF model to determine slice sizes,
     rather than calculating from config (which can be wrong for some models).
     """
@@ -593,9 +631,11 @@ def _create_vllm_to_hf_mapping(
     model_config = model.config
     hidden_size = getattr(model_config, "hidden_size", 4096)
     num_attention_heads = getattr(model_config, "num_attention_heads", 32)
-    num_key_value_heads = getattr(model_config, "num_key_value_heads", num_attention_heads)
+    num_key_value_heads = getattr(
+        model_config, "num_key_value_heads", num_attention_heads
+    )
     intermediate_size = getattr(model_config, "intermediate_size", hidden_size * 4)
-    
+
     # Try to get head_dim from config (some models like Qwen3 have this)
     head_dim = getattr(model_config, "head_dim", None)
     if head_dim is None:
@@ -606,7 +646,7 @@ def _create_vllm_to_hf_mapping(
     q_size = None
     k_size = None
     v_size = None
-    
+
     for name, param in hf_state_dict.items():
         if "q_proj.weight" in name and q_size is None:
             q_size = param.shape[0]  # Output dimension
@@ -616,7 +656,7 @@ def _create_vllm_to_hf_mapping(
             v_size = param.shape[0]
         if q_size and k_size and v_size:
             break
-    
+
     # Fallback to calculated values if not found
     if q_size is None:
         q_size = num_attention_heads * head_dim
@@ -628,7 +668,7 @@ def _create_vllm_to_hf_mapping(
     # Also get gate/up sizes from actual HF model
     gate_size = None
     up_size = None
-    
+
     for name, param in hf_state_dict.items():
         if "gate_proj.weight" in name and gate_size is None:
             gate_size = param.shape[0]
@@ -636,7 +676,7 @@ def _create_vllm_to_hf_mapping(
             up_size = param.shape[0]
         if gate_size and up_size:
             break
-    
+
     # Fallback
     if gate_size is None:
         gate_size = intermediate_size
@@ -644,8 +684,10 @@ def _create_vllm_to_hf_mapping(
         up_size = intermediate_size
 
     # Always print sizes for debugging weight sharing issues
-    print(f"[Mapping] Model config: hidden={hidden_size}, heads={num_attention_heads}, "
-          f"kv_heads={num_key_value_heads}, head_dim={head_dim}")
+    print(
+        f"[Mapping] Model config: hidden={hidden_size}, heads={num_attention_heads}, "
+        f"kv_heads={num_key_value_heads}, head_dim={head_dim}"
+    )
     print(f"[Mapping] QKV sizes from HF model: q={q_size}, k={k_size}, v={v_size}")
     print(f"[Mapping] Gate/Up sizes from HF model: gate={gate_size}, up={up_size}")
 
@@ -719,7 +761,8 @@ def _create_vllm_to_hf_mapping(
     if debug:
         direct = sum(1 for v in mapping.values() if isinstance(v, str))
         fused = sum(1 for v in mapping.values() if isinstance(v, dict))
-        print(f"[Mapping] Total: {len(mapping)} mapped ({direct} direct, {fused} fused)")
+        print(
+            f"[Mapping] Total: {len(mapping)} mapped ({direct} direct, {fused} fused)"
+        )
 
     return mapping
-

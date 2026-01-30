@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 class TrainingConfig(BaseModel):
     """
     Training configuration for GRPO trainer.
-    
+
     Supports three training modes:
     - 'none' (legacy): Periodic checkpoint saves + vLLM restarts
     - 'shared_vllm': Attach to vLLM's shared memory tensors, update in-place
@@ -23,7 +23,7 @@ class TrainingConfig(BaseModel):
 
     # === Model Configuration ===
     model_name: str = Field(..., description="Name of the base model to train")
-    
+
     # === Training Hyperparameters ===
     lr: float = Field(1e-5, description="Learning rate for the optimizer")
     training_steps: int = Field(10, description="Number of training steps")
@@ -35,21 +35,19 @@ class TrainingConfig(BaseModel):
     optimizer: Literal["adamw", "adamw_8bit", "adamw_cpu", "adafactor"] = Field(
         "adamw_8bit",
         description="Optimizer to use: 'adamw' (full precision, ~32GB GPU), "
-                    "'adamw_8bit' (8-bit states, ~8GB GPU, requires bitsandbytes), "
-                    "'adamw_cpu' (CPU offload, ~0GB GPU, slower), "
-                    "'adafactor' (no momentum, ~8GB GPU)"
+        "'adamw_8bit' (8-bit states, ~8GB GPU, requires bitsandbytes), "
+        "'adamw_cpu' (CPU offload, ~0GB GPU, slower), "
+        "'adafactor' (no momentum, ~8GB GPU)",
     )
-    
+
     # === Device & Storage ===
     device: str = Field(
-        "cuda" if torch.cuda.is_available() else "cpu", 
-        description="Device to train on"
+        "cuda" if torch.cuda.is_available() else "cpu", description="Device to train on"
     )
     save_path: str = Field(
-        "trained_model_checkpoints", 
-        description="Base path to save model checkpoints"
+        "trained_model_checkpoints", description="Base path to save model checkpoints"
     )
-    
+
     # === vLLM Server Configuration ===
     vllm_restart_interval: int = Field(
         3, description="Restart vLLM every N training steps (legacy mode)"
@@ -76,14 +74,12 @@ class TrainingConfig(BaseModel):
             "'none': legacy mode, restart vLLM with new checkpoint files."
         ),
     )
-    
+
     # === Distributed Training Configuration ===
     trainer_rank: int = Field(
         0, description="Rank of this trainer in the distributed group"
     )
-    world_size: int = Field(
-        1, description="Total processes in the distributed group"
-    )
+    world_size: int = Field(1, description="Total processes in the distributed group")
     init_method: str = Field(
         "env://",
         description=(
@@ -149,7 +145,7 @@ class TrainingConfig(BaseModel):
             "data fetch time, and GPU memory usage per step."
         ),
     )
-    
+
     # === Atropos API Configuration ===
     atropos_url: str = Field(
         "http://localhost:8000",
@@ -158,4 +154,3 @@ class TrainingConfig(BaseModel):
             "Default is http://localhost:8000. Change for concurrent tests."
         ),
     )
-

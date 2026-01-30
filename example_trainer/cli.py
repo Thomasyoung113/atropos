@@ -14,7 +14,7 @@ from .config import TrainingConfig
 def parse_args() -> argparse.Namespace:
     """
     Parse command-line arguments for the GRPO trainer.
-    
+
     Returns:
         Parsed arguments namespace
     """
@@ -66,9 +66,9 @@ def parse_args() -> argparse.Namespace:
         choices=["adamw", "adamw_8bit", "adamw_cpu", "adafactor"],
         default="adamw_8bit",
         help="Optimizer: 'adamw' (full precision, ~32GB GPU), "
-             "'adamw_8bit' (8-bit states, ~8GB GPU), "
-             "'adamw_cpu' (CPU offload, ~0GB GPU, slower), "
-             "'adafactor' (no momentum, ~8GB GPU)",
+        "'adamw_8bit' (8-bit states, ~8GB GPU), "
+        "'adamw_cpu' (CPU offload, ~0GB GPU, slower), "
+        "'adafactor' (no momentum, ~8GB GPU)",
     )
     parser.add_argument(
         "--device",
@@ -241,10 +241,10 @@ def parse_args() -> argparse.Namespace:
 def config_from_args(args: argparse.Namespace) -> TrainingConfig:
     """
     Build a TrainingConfig from parsed CLI arguments.
-    
+
     Args:
         args: Parsed argparse namespace
-        
+
     Returns:
         TrainingConfig instance
     """
@@ -279,4 +279,3 @@ def config_from_args(args: argparse.Namespace) -> TrainingConfig:
         benchmark=getattr(args, "benchmark", False),
         atropos_url=getattr(args, "atropos_url", "http://localhost:8000"),
     )
-

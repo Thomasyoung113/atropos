@@ -19,7 +19,6 @@ import wandb
 
 from .config import TrainingConfig
 
-
 # Global storage for logprob alignment stats
 _logprob_alignment_stats: Dict[str, float] = {}
 
@@ -31,11 +30,11 @@ def verify_vllm_sees_updates(model: torch.nn.Module, vllm_port: int, step: int) 
     """
     Verify that vLLM actually sees weight updates by corrupting a weight
     and checking if vLLM's output changes.
-    
+
     Returns True if vLLM sees updates, False otherwise.
     """
     import requests
-    
+
     try:
         # Find embedding layer
         embed_param = None
@@ -43,13 +42,13 @@ def verify_vllm_sees_updates(model: torch.nn.Module, vllm_port: int, step: int) 
             if "embed_tokens" in name:
                 embed_param = param
                 break
-        
+
         if embed_param is None:
             return True  # Can't verify, assume OK
-        
+
         test_prompt = "Hello"
         vllm_url = f"http://localhost:{vllm_port}"
-        
+
         # Get baseline
         r1 = requests.post(
             f"{vllm_url}/generate",
@@ -57,33 +56,35 @@ def verify_vllm_sees_updates(model: torch.nn.Module, vllm_port: int, step: int) 
             timeout=10,
         )
         baseline = r1.json().get("text", [""])[0] if r1.status_code == 200 else None
-        
+
         if baseline is None:
             return True  # Can't verify
-        
+
         # Corrupt weight
         original = embed_param.data[0, 0].clone()
         embed_param.data[0, 0] = 9999.0
-        
+
         # Query vLLM
         r2 = requests.post(
             f"{vllm_url}/generate",
             json={"prompt": test_prompt, "max_tokens": 3, "temperature": 0.0},
             timeout=10,
         )
-        corrupted = r2.json().get("text", [""])[0] if r2.status_code == 200 else baseline
-        
+        corrupted = (
+            r2.json().get("text", [""])[0] if r2.status_code == 200 else baseline
+        )
+
         # Restore
         embed_param.data[0, 0] = original
-        
+
         # Check if output changed
-        sharing_works = (corrupted != baseline)
-        
+        sharing_works = corrupted != baseline
+
         if not sharing_works and step > 0:
             print(f"    [WARN] Step {step}: vLLM may not see weight updates!")
-        
+
         return sharing_works
-        
+
     except Exception:
         return True  # Can't verify, assume OK
 
@@ -92,12 +93,16 @@ def snapshot_weights(model: torch.nn.Module) -> Dict[str, float]:
     """Take a snapshot of sample weight values for comparison."""
     snapshot = {}
     for name, param in model.named_parameters():
-        if any(x in name for x in ["layers.0.", "layers.10.", "embed_tokens", "lm_head"]):
+        if any(
+            x in name for x in ["layers.0.", "layers.10.", "embed_tokens", "lm_head"]
+        ):
             snapshot[name] = param.data.flatten()[0].item()
     return snapshot
 
 
-def compare_weight_snapshots(old: Dict[str, float], new: Dict[str, float]) -> Dict[str, float]:
+def compare_weight_snapshots(
+    old: Dict[str, float], new: Dict[str, float]
+) -> Dict[str, float]:
     """Compare two weight snapshots and return differences."""
     diffs = {}
     for name in old:
@@ -160,7 +165,7 @@ def compute_grpo_loss(
     The GRPO loss encourages the model to:
     - Increase probability for tokens with positive advantages
     - Decrease probability for tokens with negative advantages
-    
+
     Args:
         model: The model to compute loss for
         tokens: Input token IDs [batch, seq_len]
@@ -202,16 +207,18 @@ def compute_grpo_loss(
         avg_logp = (logp_per_token * mask_float).sum(dim=-1) / mask_sum
         pos_logp = (logp_per_token * pos).mean().item()
         neg_logp = (logp_per_token * neg).mean().item()
-        
+
         # For alignment check: compute logprobs WITHOUT temperature scaling
         # This allows fair comparison with inference logprobs (which are at temp=1.0)
         raw_logp_per_token = -F.cross_entropy(
-            outputs.logits.view(-1, outputs.logits.size(-1)),  # Use original logits, not temp-scaled
+            outputs.logits.view(
+                -1, outputs.logits.size(-1)
+            ),  # Use original logits, not temp-scaled
             labels.view(-1),
             reduction="none",
             ignore_index=-100,
         ).view(labels.shape)
-        
+
         # Collect raw training logprobs for masked positions (generated tokens only)
         # Keep as PyTorch tensor (supports bfloat16 natively)
         training_logprobs_flat = raw_logp_per_token[mask.bool()].detach()
@@ -226,7 +233,7 @@ def compute_grpo_loss(
     # Compute a more interpretable loss metric (advantage-weighted logprobs)
     with torch.no_grad():
         interpretable_loss = (avg_logp * advantages.squeeze()).mean().item()
-    
+
     metrics = {
         "pos_logp": pos_logp,
         "neg_logp": neg_logp,
@@ -247,57 +254,61 @@ def compute_logprob_alignment(
 ) -> Dict[str, float]:
     """
     Compute alignment stats between inference and training logprobs.
-    
+
     At initialization (step 0), these should match closely if the model
     weights are correctly shared between training and inference.
-    
+
     Args:
         inference_logprobs: Logprobs from vLLM inference (numpy arrays)
         training_logprobs: Logprobs computed during training forward pass (PyTorch tensors, bfloat16 supported)
         debug: If True, print detailed debugging info
-        
+
     Returns:
         Dict of alignment statistics
     """
     if not inference_logprobs or not training_logprobs:
         return {}
-    
+
     # Process inference logprobs (numpy)
     inf_flat = np.concatenate(inference_logprobs)
     # Filter out placeholder values (1.0 or 0.0 used for prompt tokens)
     inf_mask = (inf_flat != 1.0) & (inf_flat != 0.0)
     inf_filtered = inf_flat[inf_mask]
-    
+
     # Process training logprobs (PyTorch - supports bfloat16 natively)
     train_flat = torch.cat(training_logprobs)
-    
+
     if debug:
-        print(f"    [DEBUG] Inference: {len(inf_flat)} total, {len(inf_filtered)} after filter")
+        print(
+            f"    [DEBUG] Inference: {len(inf_flat)} total, {len(inf_filtered)} after filter"
+        )
         print(f"    [DEBUG] Training: {train_flat.numel()} logprobs")
         if len(inf_filtered) > 0:
             print(f"    [DEBUG] Inf sample (first 5): {inf_filtered[:5]}")
         if train_flat.numel() > 0:
             print(f"    [DEBUG] Train sample (first 5): {train_flat[:5].tolist()}")
-    
+
     # Compute stats using PyTorch for training (keeps bfloat16 precision)
     stats = {}
-    
+
     if len(inf_filtered) > 0:
         stats["logprobs/inference_mean"] = float(np.mean(inf_filtered))
         stats["logprobs/inference_std"] = float(np.std(inf_filtered))
-    
+
     if train_flat.numel() > 0:
         # PyTorch operations - fully support bfloat16
         stats["logprobs/training_mean"] = train_flat.mean().item()
         stats["logprobs/training_std"] = train_flat.std().item()
-    
+
     # Compute diff (for tracking, not validation)
     # NOTE: Per-token comparison is NOT reliable here because inference and training
     # logprobs come from different batch orderings and can't be aligned token-by-token.
     # The real-time test at startup is the proper alignment validation.
     if "logprobs/inference_mean" in stats and "logprobs/training_mean" in stats:
-        stats["logprobs/diff"] = stats["logprobs/inference_mean"] - stats["logprobs/training_mean"]
-    
+        stats["logprobs/diff"] = (
+            stats["logprobs/inference_mean"] - stats["logprobs/training_mean"]
+        )
+
     return stats
 
 
@@ -320,7 +331,7 @@ def run_training_step(
     3. Gradient clipping
     4. Optimizer step
     5. (Optional) Logprob alignment check
-    
+
     Args:
         model: The model to train
         optimizer: The optimizer
@@ -335,7 +346,7 @@ def run_training_step(
         Dict of training metrics for this step
     """
     global _logprob_alignment_stats
-    
+
     total_loss = 0.0
     total_pos_logp = 0.0
     total_neg_logp = 0.0
@@ -367,7 +378,7 @@ def run_training_step(
         total_neg_logp += metrics["neg_logp"]
         total_pos += metrics["pos_count"]
         total_neg += metrics["neg_count"]
-        
+
         # Collect training logprobs for alignment check
         if "training_logprobs" in metrics:
             all_training_logprobs.append(metrics["training_logprobs"])
@@ -376,7 +387,7 @@ def run_training_step(
     grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
     optimizer.step()
     optimizer.zero_grad()
-    
+
     # Help prevent memory fragmentation
     torch.cuda.empty_cache()
 
@@ -389,13 +400,13 @@ def run_training_step(
 
     result = {
         "loss": total_loss,
-        "grad_norm": grad_norm.item() if hasattr(grad_norm, 'item') else grad_norm,
+        "grad_norm": grad_norm.item() if hasattr(grad_norm, "item") else grad_norm,
         "pos_logp": total_pos_logp,
         "neg_logp": total_neg_logp,
         "pos_count": total_pos,
         "neg_count": total_neg,
     }
-    
+
     # Compute logprob alignment stats
     # NOTE: This comparison is approximate - inference and training logprobs
     # come from different batching, so token-by-token alignment isn't possible.
@@ -406,7 +417,7 @@ def run_training_step(
         )
         _logprob_alignment_stats.update(alignment_stats)
         result["logprob_alignment"] = alignment_stats
-    
+
     return result
 
 
@@ -428,7 +439,7 @@ def log_metrics(
         benchmark: Whether to show timing/benchmark info
     """
     global _logprob_alignment_stats
-    
+
     # Build timing string (only if benchmark enabled)
     timing_str = ""
     if benchmark:
@@ -444,7 +455,9 @@ def log_metrics(
     # Show interpretable loss (advantage-weighted logprobs) if available
     interp_loss = metrics.get("interpretable_loss")
     if interp_loss is not None:
-        print(f"  AdvWeightedLogP: {interp_loss:.4f}, Grad norm: {metrics['grad_norm']:.4f}{timing_str}")
+        print(
+            f"  AdvWeightedLogP: {interp_loss:.4f}, Grad norm: {metrics['grad_norm']:.4f}{timing_str}"
+        )
     else:
         loss_str = (
             f"{metrics['loss']:.6f}"
@@ -463,7 +476,7 @@ def log_metrics(
             f"    Advantages: +{int(pos_count)} / -{int(neg_count)}, "
             f"LogP: pos={pos_logp:.3f}, neg={neg_logp:.3f}"
         )
-    
+
     # Show logprob alignment stats (important for shared_vllm validation!)
     if "logprob_alignment" in metrics:
         alignment = metrics["logprob_alignment"]
@@ -471,16 +484,18 @@ def log_metrics(
             diff = alignment["logprobs/diff"]
             inf_mean = alignment.get("logprobs/inference_mean", 0)
             train_mean = alignment.get("logprobs/training_mean", 0)
-            
+
             # NOTE: This comparison has a fundamental timing issue!
             # - inference_logprobs: from vLLM at generation time (possibly stale)
             # - training_logprobs: from trainer's current forward pass
             # After training starts, weights change, making comparison invalid.
-            # 
+            #
             # NOTE: This diff is just for monitoring, not validation!
             # The real-time test at startup is the reliable alignment check.
             # This diff will naturally drift as training progresses (expected).
-            print(f"    LogProb Stats: inf_mean={inf_mean:.4f}, train_mean={train_mean:.4f}")
+            print(
+                f"    LogProb Stats: inf_mean={inf_mean:.4f}, train_mean={train_mean:.4f}"
+            )
 
     if use_wandb:
         log_dict = {
@@ -490,15 +505,20 @@ def log_metrics(
             "train/neg_logp": metrics.get("neg_logp", 0),
         }
         # Add timing metrics if present
-        for key in ["step_time", "sync_time", "data_fetch_time", 
-                    "gpu_memory_gb", "gpu_memory_reserved_gb"]:
+        for key in [
+            "step_time",
+            "sync_time",
+            "data_fetch_time",
+            "gpu_memory_gb",
+            "gpu_memory_reserved_gb",
+        ]:
             if key in metrics:
                 log_dict[f"train/{key}"] = metrics[key]
-        
+
         # Add logprob alignment stats (key for shared_vllm validation!)
         if _logprob_alignment_stats:
             log_dict.update(_logprob_alignment_stats)
-        
+
         if extra_metrics:
             log_dict.update(extra_metrics)
         wandb.log(log_dict, step=step)
@@ -544,7 +564,9 @@ def finalize_training(
         total_step_time = sum(step_times)
         avg_sync_time = sum(sync_times) / len(sync_times) if sync_times else 0
         total_sync_time = sum(sync_times)
-        avg_data_fetch = sum(data_fetch_times) / len(data_fetch_times) if data_fetch_times else 0
+        avg_data_fetch = (
+            sum(data_fetch_times) / len(data_fetch_times) if data_fetch_times else 0
+        )
         total_data_fetch = sum(data_fetch_times)
         avg_gpu_mem = sum(gpu_memories) / len(gpu_memories) if gpu_memories else 0
 
@@ -552,13 +574,17 @@ def finalize_training(
             print(f"\n{'='*70}")
             print(f"BENCHMARK SUMMARY ({mode})")
             print(f"{'='*70}")
-            print(f"  Total training time:     {total_time:.2f}s ({total_time/60:.2f} min)")
+            print(
+                f"  Total training time:     {total_time:.2f}s ({total_time/60:.2f} min)"
+            )
             print(f"  Total steps:             {total_steps}")
             print("  ")
             print("  TIMING BREAKDOWN:")
             print(f"    Avg step time:         {avg_step_time:.2f}s")
             print(f"    Total step time:       {total_step_time:.2f}s")
-            print(f"    Avg sync time:         {avg_sync_time:.2f}s (x{len(sync_times)} syncs)")
+            print(
+                f"    Avg sync time:         {avg_sync_time:.2f}s (x{len(sync_times)} syncs)"
+            )
             print(f"    Total sync time:       {total_sync_time:.2f}s")
             print(f"    Avg data fetch time:   {avg_data_fetch:.2f}s")
             print(f"    Total data fetch time: {total_data_fetch:.2f}s")
@@ -579,4 +605,3 @@ def finalize_training(
             wandb.finish()
     elif use_wandb:
         wandb.finish()
-

@@ -82,7 +82,7 @@ wait_for_vllm() {
     local name=$2
     local max_attempts=${3:-60}  # Default 60 attempts (5 minutes with 5s sleep)
     local attempt=1
-    
+
     echo "  Waiting for vLLM ($name) on port $port..."
     while [ $attempt -le $max_attempts ]; do
         if curl -s "http://localhost:$port/health" > /dev/null 2>&1; then
@@ -93,7 +93,7 @@ wait_for_vllm() {
         sleep 5
         attempt=$((attempt + 1))
     done
-    
+
     echo "  ✗ vLLM ($name) failed to start after $((max_attempts * 5))s"
     return 1
 }
@@ -106,7 +106,7 @@ wait_for_api() {
     local name=$2
     local max_attempts=${3:-20}
     local attempt=1
-    
+
     echo "  Waiting for API ($name) on port $port..."
     while [ $attempt -le $max_attempts ]; do
         if curl -s "http://localhost:$port/info" > /dev/null 2>&1; then
@@ -116,7 +116,7 @@ wait_for_api() {
         sleep 2
         attempt=$((attempt + 1))
     done
-    
+
     echo "  ✗ API ($name) failed to start"
     return 1
 }

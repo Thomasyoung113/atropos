@@ -26,8 +26,8 @@ Usage:
     python grpo.py --model-name Qwen/Qwen2.5-3B-Instruct --weight-bridge-mode lora_only
 """
 
-from .cli import parse_args, config_from_args
-from .trainers import train_legacy, train_shared_vllm, train_lora
+from .cli import config_from_args, parse_args
+from .trainers import train_legacy, train_lora, train_shared_vllm
 
 
 def main():
@@ -52,4 +52,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

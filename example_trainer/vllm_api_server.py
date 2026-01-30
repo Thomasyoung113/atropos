@@ -790,7 +790,9 @@ async def lora_load(request: LoraLoadRequest) -> JSONResponse:
         )  # vLLM needs unique int ID
         bridge_state.lora_load_count += 1
 
-    logger.info(f"LoRA adapter loaded: {request.adapter_path} (id={bridge_state.active_lora_id})")
+    logger.info(
+        f"LoRA adapter loaded: {request.adapter_path} (id={bridge_state.active_lora_id})"
+    )
 
     return JSONResponse(
         {
